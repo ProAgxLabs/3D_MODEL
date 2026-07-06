@@ -20,7 +20,7 @@
     position:fixed;top:18px;left:22px;z-index:5;pointer-events:none;
   }
   .titulo .eyebrow{
-    font-size:15px;letter-spacing:.22em;text-transform:uppercase;
+    font-size:11px;letter-spacing:.22em;text-transform:uppercase;
     color:var(--naranja);font-weight:700;
   }
   .titulo h1{
@@ -59,7 +59,7 @@
      (evita solaparse con la barra de vistas al ser responsiva) */
   .marca{display:flex;align-items:center;gap:8px;margin-top:10px}
   .marca img{
-    display:block;height:60px;width:auto;max-width:180px;object-fit:contain;
+    display:block;height:20px;width:auto;max-width:100px;object-fit:contain;
     border-radius:3px;
   }
   .marca .credito{font-size:10px;color:#9AA2AA;letter-spacing:.02em}
@@ -73,7 +73,7 @@
 <body>
 
 <div class="titulo">
-  <div class="eyebrow">AGX Labs</div>
+  <div class="eyebrow">Equipo industrial</div>
   <h1>Cabina de pintura con extracción</h1>
   <div class="sub">Modelo 3D interactivo · 3 extractores axiales · panel filtrante perforado</div>
   <div class="marca">
@@ -322,11 +322,12 @@ const LIM = {rMin:4, rMax:40, phiMin:0.08, phiMax:Math.PI/2 - 0.02};
 function aplicarCamara(){
   esf.r   = Math.max(LIM.rMin, Math.min(LIM.rMax, esf.r));
   esf.phi = Math.max(LIM.phiMin, Math.min(LIM.phiMax, esf.phi));
+  const rEfectivo = Math.min(LIM.rMax, esf.r * factorEncuadre);
   const sp = Math.sin(esf.phi), cp = Math.cos(esf.phi);
   camara.position.set(
-    objetivo.x + esf.r*sp*Math.cos(esf.theta),
-    objetivo.y + esf.r*cp,
-    objetivo.z + esf.r*sp*Math.sin(esf.theta)
+    objetivo.x + rEfectivo*sp*Math.cos(esf.theta),
+    objetivo.y + rEfectivo*cp,
+    objetivo.z + rEfectivo*sp*Math.sin(esf.theta)
   );
   camara.lookAt(objetivo);
 }
@@ -444,11 +445,36 @@ btnGiro.addEventListener('click', ()=>{
 });
 
 /* ============ bucle ============ */
+const FOV_BASE      = 38;    // FOV vertical de diseño (cámara no se distorsiona, se mantiene fijo)
+const ASPECTO_BASE  = 16/9;  // aspecto de referencia (pantallas horizontales, como se diseñó)
+const RADIO_ENCUADRE = 3.0;  // "radio" aprox. de la cabina que siempre debe verse completa
+
+const _vFovRad = THREE.MathUtils.degToRad(FOV_BASE);
+const _distVertical = RADIO_ENCUADRE / Math.sin(_vFovRad/2); // no depende del aspecto
+const _hFovRadBase  = 2*Math.atan(Math.tan(_vFovRad/2)*ASPECTO_BASE);
+const _distBase = Math.max(_distVertical, RADIO_ENCUADRE / Math.sin(_hFovRadBase/2));
+
+let factorEncuadre = 1; // >=1: cuánto hay que alejar la cámara extra para pantallas angostas
+
 function ajustar(){
   const w = window.innerWidth, h = window.innerHeight;
   renderer.setSize(w, h, false);
-  camara.aspect = w/h;
+  const aspecto = w / h;
+  camara.aspect = aspecto;
+  camara.fov = FOV_BASE;
   camara.updateProjectionMatrix();
+
+  /* En pantallas más angostas que el diseño original (celulares en vertical,
+     principalmente) la cabina deja de entrar completa en el ancho visible.
+     Aquí se calcula cuánto hay que alejar la cámara para que siga entrando
+     completa y centrada, sin distorsionar el FOV. En pantallas iguales o
+     más anchas que el diseño (factor = 1) no se altera nada. */
+  const hFovRad = 2*Math.atan(Math.tan(_vFovRad/2)*aspecto);
+  const distHorizontal = RADIO_ENCUADRE / Math.sin(hFovRad/2);
+  const distNecesaria = Math.max(_distVertical, distHorizontal);
+  factorEncuadre = distNecesaria / _distBase;
+
+  aplicarCamara();
 }
 window.addEventListener('resize', ajustar);
 ajustar();
