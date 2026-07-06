@@ -199,6 +199,15 @@ function cilX(x0,x1,y,z, r, mat, seg=40){
   modelo.add(m);
   return m;
 }
+/* cilindro a lo largo del eje y local (eje por defecto del CylinderGeometry, sin rotar) */
+function cilY(x, y0,y1, z, r, mat, seg=40){
+  const L = Math.abs(y1-y0);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r,r,L,seg), mat);
+  m.position.set(x, (y0+y1)/2, z);
+  m.castShadow = true;
+  modelo.add(m);
+  return m;
+}
 
 const W = 4.0, D = 3.0, H = 3.0;
 
@@ -253,35 +262,62 @@ caja(0.35, D+0.12, 0.45, W-0.7, 0.55, H-0.6, M.lamina);
 caja(0.33, D+0.12, 1.35, W-0.66, 0.57, 0.05, M.laminaOsc);
 caja(0.33, D+0.12, 2.15, W-0.66, 0.57, 0.05, M.laminaOsc);
 
-/* ductos + extractores */
+/* ductos + extractores
+   Los 3 tubos son individuales (cada uno con su propia posición a lo
+   ancho de la cabina) pero del mismo tamaño exacto: se usa la altura
+   del tubo más alto de la referencia para los 3. Cada uno sale de la
+   parte posterior de la cabina, sube una distancia considerable y
+   recién ahí el codo lo dobla para avanzar horizontalmente hacia el
+   frente de la cabina (no hacia el costado), de modo que el cabezal
+   del extractor queda mirando de frente, igual que la cabina. */
 const ductoR = 0.14, fanR = 0.225;
-const xsD = [0.85, 2.0, 3.15];
-const hsD = [3.85, 4.45, 5.05];
-const xFin = -2.35, yC = D + 0.40;
+const xsD = [0.85, 2.0, 3.15];        // posición individual de cada tubo (ancho de la cabina)
+const yC = D + 0.40;                   // profundidad de salida, parte posterior de la cabina
+const baseZ = 2.85;                    // altura de salida
+const riseLen = 2.00;                  // ascenso considerable (igual para los 3: el más alto)
+const topZ = baseZ + riseLen;          // altura del codo / tramo horizontal (misma para los 3)
+const runLen = 2.50;                   // largo del tramo horizontal hacia el frente
+const yFin = yC - 0.24 - runLen;       // profundidad del extremo (extractor), mirando al frente
+
+/* matriz que mapea los ejes locales del codo (torus, plano X-Y) hacia
+   el plano vertical->frente (Z->Y): eje local X -> Y, eje local Y -> Z,
+   eje local Z -> X. Así el codo entra en Z (subiendo) y sale en -Y
+   (hacia el frente), dejando el cabezal orientado hacia el frente. */
+const basisCodo = new THREE.Matrix4().makeBasis(
+  new THREE.Vector3(0,1,0),
+  new THREE.Vector3(0,0,1),
+  new THREE.Vector3(1,0,0)
+);
 
 for(let k=0;k<3;k++){
-  const xd = xsD[k], hz = hsD[k];
-  cilZ(xd, yC, 2.85, hz-0.24, ductoR, M.ducto);                    // vertical
-  cilZ(xd, yC, 3.50, 3.56, ductoR*1.35, M.ductoOsc);               // brida
-  /* codo: cuarto de toro en el plano x-z */
+  const xd = xsD[k];
+  cilZ(xd, yC, baseZ, topZ-0.24, ductoR, M.ducto);                    // vertical
+  cilZ(xd, yC, baseZ+0.65, baseZ+0.71, ductoR*1.35, M.ductoOsc);      // brida
+
+  /* codo: cuarto de toro, del tramo vertical (Z) al horizontal hacia el frente (Y) */
   const codo = new THREE.Mesh(
     new THREE.TorusGeometry(0.24, ductoR, 20, 28, Math.PI/2), M.ducto);
-  codo.rotation.x = Math.PI/2;
-  codo.position.set(xd-0.24, yC, hz-0.24);
+  codo.quaternion.setFromRotationMatrix(basisCodo);
+  codo.position.set(xd, yC-0.24, topZ-0.24);
   codo.castShadow = true;
   modelo.add(codo);
-  cilX(xFin+0.50, xd-0.24, yC, hz, ductoR, M.ducto);               // horizontal
-  const xm = (xd-0.24+xFin)/2;
-  cilX(xm-0.06, xm, yC, hz, ductoR*1.35, M.ductoOsc);              // brida
-  cilX(xFin, xFin+0.50, yC, hz, fanR, M.ductoOsc);                 // extractor
-  cilX(xFin-0.04, xFin+0.02, yC, hz, fanR*1.06, M.naranja, 40);    // aro naranja
-  /* rejilla: 4 barras cruzadas */
+
+  cilY(xd, yFin+0.50, yC-0.24, topZ, ductoR, M.ducto);                // horizontal, hacia el frente
+  const ym = ((yC-0.24)+yFin)/2;
+  cilY(xd, ym-0.06, ym, topZ, ductoR*1.35, M.ductoOsc);               // brida
+  cilY(xd, yFin, yFin+0.50, topZ, fanR, M.ductoOsc);                  // extractor
+  cilY(xd, yFin-0.04, yFin+0.02, topZ, fanR*1.06, M.naranja, 40);     // aro naranja
+  /* rejilla: 4 barras cruzadas en el plano perpendicular al eje del
+     tubo (plano X-Z), para que se vean de frente junto al cabezal */
   for(let a=0;a<4;a++){
     const ang = a*Math.PI/4;
     const barra = new THREE.Mesh(
       new THREE.CylinderGeometry(0.011, 0.011, 0.37, 8), M.rejilla);
-    barra.position.set(xFin-0.05, yC, hz);
-    barra.rotation.x = ang;          /* gira en el plano y-z local */
+    barra.position.set(xd, yFin-0.05, topZ);
+    barra.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0,1,0),
+      new THREE.Vector3(Math.cos(ang), 0, Math.sin(ang))
+    );
     modelo.add(barra);
   }
 }
